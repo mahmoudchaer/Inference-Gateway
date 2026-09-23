@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inference Gateway</title>
+  <style>
+    :root { color-scheme: light; font-family: ui-sans-serif, system-ui, sans-serif; }
+    body { margin: 0; background: #f6f5f2; color: #1c1b19; }
+    main { max-width: 960px; margin: 0 auto; padding: 32px 20px 64px; }
+    h1 { font-size: 1.4rem; font-weight: 600; margin: 0 0 4px; }
+    p.lead { margin: 0 0 24px; color: #5c5852; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+    .card { background: white; border-radius: 12px; padding: 14px 16px; }
+    .card span { display: block; color: #6b675f; font-size: 0.78rem; }
+    .card strong { display: block; margin-top: 4px; font-size: 1.25rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 28px; background: white; border-radius: 12px; overflow: hidden; }
+    th, td { text-align: left; padding: 10px 12px; font-size: 0.85rem; border-bottom: 1px solid #eee; }
+    th { color: #6b675f; font-weight: 500; }
+    tr.link { cursor: pointer; }
+    tr.link:hover { background: #f3f1ec; }
+    .empty { margin-top: 28px; color: #6b675f; }
+    nav.tabs { display: flex; gap: 8px; margin: 0 0 20px; }
+    nav.tabs a { text-decoration: none; color: #5c5852; background: white; border-radius: 999px; padding: 6px 12px; font-size: 0.85rem; }
+    nav.tabs a.active { background: #1c1b19; color: white; }
+    a.back { color: #5c5852; text-decoration: none; font-size: 0.9rem; }
+    section { background: white; border-radius: 12px; padding: 14px 16px; margin-top: 16px; }
+    section h2 { margin: 0 0 10px; font-size: 0.95rem; }
+    pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 0.82rem; line-height: 1.45; max-height: 420px; overflow: auto; }
+    form { max-width: 520px; background: white; border-radius: 12px; padding: 20px; }
+    label { display: block; margin-bottom: 16px; color: #5c5852; font-size: 0.82rem; }
+    select, input { box-sizing: border-box; display: block; width: 100%; margin-top: 6px; padding: 10px 12px; border: 1px solid #d8d4cc; border-radius: 8px; background: white; color: #1c1b19; }
+    button { border: 0; border-radius: 8px; padding: 10px 16px; background: #1c1b19; color: white; cursor: pointer; }
+    .notice { color: #39714f; margin-left: 10px; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Inference Gateway</h1>
+    <p class="lead">Context removed before OpenAI sees the request. Codex keeps its own credentials.</p>
+    <nav class="tabs" id="tabs">
+      <a href="/" data-tab="requests">Requests</a>
+      <a href="/chats" data-tab="chats">Chats</a>
+      <a href="/settings" data-tab="settings">Settings</a>
+    </nav>
+    <div id="cards" class="cards"></div>
+    <div id="table"></div>
+  </main>
+  <script>
+    const money = (n) => `$${Number(n || 0).toFixed(4)}`;
+    const num = (n) => Number(n || 0).toLocaleString();
+    function cards(summary) {
+      const items = [
+        ["Requests", num(summary.requests)],
+        ["Tokens removed", num(summary.tokens_removed)],
+        ["Reduction", `${summary.reduction_pct}%`],
+        ["Estimated saved", money(summary.money_saved)],
+        ["Jev cost", money(summary.jev_cost_usd)],
+        ["Avg overhead", `${Math.round(summary.gateway_overhead_ms)} ms`],
+      ];
+      document.getElementById("cards").innerHTML = items.map(([k, v]) =>
+        `<div class="card"><span>${k}</span><strong>${v}</strong></div>`).join("");
+    }
+    function table(rows) {
+      if (!rows.length) {
+        document.getElementById("table").innerHTML = `<p class="empty">No requests recorded yet.</p>`;
+        return;
+      }
+      const head = ["When", "Model", "Level", "In", "Out", "Removed", "Saved", "Jev", "Overhead"];
+      const body = rows.map((row) => `<tr class="link" data-href="/requests/${row.id}">
+        <td>${new Date(row.created_at * 1000).toLocaleString()}</td>
+        <td>${escapeHtml(String(row.model || ""))}</td>
+        <td>${escapeHtml(String(row.optimization || ""))}</td>
+        <td>${num(row.original_tokens)}</td>
+        <td>${num(row.optimized_tokens)}</td>
+        <td>${row.reduction_pct}%</td>
+        <td>${money(row.money_saved)}</td>
+        <td>${Math.round(row.jev_latency_ms)} ms</td>
+        <td>${Math.round(row.gateway_overhead_ms)} ms</td>
+      </tr>`).join("");
+      document.getElementById("table").innerHTML =
+        `<table><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table>`;
+      document.querySelectorAll("tr.link").forEach((row) => {
+        row.addEventListener("click", () => { location.href = row.dataset.href; });
+      });
+    }
+    const show = (value) => {
+      if (value == null || value === "" || (Array.isArray(value) && !value.length)) return "Nothing.";
+      return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+    };
+    function chatsTable(rows) {
+      if (!rows.length) {
+        document.getElementById("table").innerHTML = `<p class="empty">No chats recorded yet.</p>`;
+        return;
+      }
+      const head = ["Chat", "Requests", "Removed", "Saved", "Last"];
+      const body = rows.map((row) => `<tr class="link" data-href="/chats/${encodeURIComponent(row.chat_id)}">
+        <td>${escapeHtml(row.title)}</td>
+        <td>${num(row.requests)}</td>
+        <td>${row.reduction_pct}%</td>
+        <td>${money(row.money_saved)}</td>
+        <td>${new Date(row.last_at * 1000).toLocaleString()}</td>
+      </tr>`).join("");
+      document.getElementById("table").innerHTML =
+        `<table><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table>`;
+      document.querySelectorAll("tr.link").forEach((row) => {
+        row.addEventListener("click", () => { location.href = row.dataset.href; });
+      });
+    }
+    function detail(row) {
+      document.querySelector("p.lead").textContent = `${row.model || "request"} · ${row.optimization} · ${row.reduction_pct}% removed`;
+      document.getElementById("cards").innerHTML = "";
+      const chatLink = row.chat_id ? `<a class="back" href="/chats/${encodeURIComponent(row.chat_id)}">Chat</a> · ` : "";
+      document.getElementById("table").innerHTML = `
+        ${chatLink}<a class="back" href="/">All requests</a>
+        <section><h2>Removed</h2><pre>${escapeHtml(show(row.removed))}</pre></section>
+        <section><h2>Forwarded</h2><pre>${escapeHtml(show(row.forwarded))}</pre></section>
+        <section><h2>Original input</h2><pre>${escapeHtml(show(row.original))}</pre></section>
+        <section><h2>Model output</h2><pre>${escapeHtml(show(row.output))}</pre></section>`;
+    }
+    function escapeHtml(text) {
+      return String(text).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+    }
+    const parts = location.pathname.split("/").filter(Boolean);
+    const tab = parts[0] === "chats" ? "chats" : parts[0] === "settings" ? "settings" : "requests";
+    document.querySelectorAll("#tabs a").forEach((link) => {
+      link.classList.toggle("active", link.dataset.tab === tab);
+    });
+    if (parts[0] === "settings") {
+      document.querySelector("p.lead").textContent = "Private, device-local settings. Changes apply after a restart.";
+      document.getElementById("cards").innerHTML = "";
+      fetch("/api/settings").then((r) => r.json()).then((settings) => {
+        document.getElementById("table").innerHTML = `<form id="settings-form">
+          <label>Optimization level<select name="optimization">
+            ${["low", "normal", "high"].map((value) => `<option ${settings.optimization === value ? "selected" : ""}>${value}</option>`).join("")}
+          </select></label>
+          <label>Request logs<select name="logs_enabled"><option value="true" ${settings.logs_enabled ? "selected" : ""}>On</option><option value="false" ${!settings.logs_enabled ? "selected" : ""}>Off</option></select></label>
+          <label>Jev API key<input name="jev_api_key" type="password" autocomplete="off" placeholder="${settings.jev_api_key_set ? "Configured — leave blank to keep" : "Not configured"}" /></label>
+          <button type="submit">Save settings</button><span class="notice" id="saved"></span>
+        </form>`;
+        document.getElementById("settings-form").addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const form = new FormData(event.target);
+          const body = {optimization: form.get("optimization"), logs_enabled: form.get("logs_enabled") === "true"};
+          if (form.get("jev_api_key")) body.jev_api_key = form.get("jev_api_key");
+          const response = await fetch("/api/settings", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+          const result = await response.json();
+          document.getElementById("saved").textContent = response.ok ? "Saved — restart the gateway to apply" : (result.error || "Could not save");
+        });
+      });
+    } else if (parts[0] === "requests" && parts[1]) {
+      fetch(`/api/metrics/${parts[1]}`).then((r) => r.json()).then(detail);
+    } else if (parts[0] === "chats" && parts[1]) {
+      fetch(`/api/chats/${parts[1]}`).then((r) => r.json()).then((data) => {
+        document.querySelector("p.lead").textContent = data.title || "Chat";
+        document.getElementById("cards").innerHTML = "";
+        document.getElementById("table").insertAdjacentHTML("beforebegin", `<a class="back" href="/chats">← Chats</a>`);
+        table(data.requests || []);
+      });
+    } else if (parts[0] === "chats") {
+      fetch("/api/chats").then((r) => r.json()).then((data) => {
+        document.getElementById("cards").innerHTML = "";
+        chatsTable(data.chats || []);
+      });
+    } else fetch("/api/metrics").then((r) => r.json()).then((data) => {
+      if (!data.enabled) {
+        document.getElementById("cards").innerHTML = `<p class="empty">Metrics are off. Set GATEWAY_METRICS=1 to record them.</p>`;
+        return;
+      }
+      cards(data.summary);
+      table(data.requests);
+    });
+  </script>
+</body>
+</html>
