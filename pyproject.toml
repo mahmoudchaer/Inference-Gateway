@@ -18,11 +18,11 @@ classifiers = [
   "Topic :: Software Development :: Tools",
 ]
 dependencies = [
-  "certifi>=2024.8.30",
-  "fastapi>=0.115",
-  "httpx>=0.27",
-  "uvicorn>=0.32",
-  "websockets>=14",
+  "certifi>=2026.7.22",
+  "fastapi>=0.141.1",
+  "httpx>=0.28.1",
+  "uvicorn>=0.53.0",
+  "websockets>=17.1",
 ]
 
 [project.scripts]
@@ -35,7 +35,7 @@ Issues = "https://github.com/mahmoudchaer/Inference-Gateway/issues"
 Changelog = "https://github.com/mahmoudchaer/Inference-Gateway/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pyinstaller>=6.10", "ruff>=0.12"]
+dev = ["pytest>=9.1.1", "pyinstaller>=6.22.3", "ruff>=0.16.8"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -47,7 +47,7 @@ target-version = "py311"
 select = ["E4", "E7", "E9", "F", "I"]
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=84.0.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
