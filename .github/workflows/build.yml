@@ -1,0 +1,87 @@
+name: Build release binaries
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    tags: ["v*"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build:
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            artifact: inference-gateway-macos-arm64
+          - os: macos-15-intel
+            artifact: inference-gateway-macos-x64
+          - os: windows-2022
+            artifact: inference-gateway-windows-x64.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install ".[dev]"
+      - run: ruff check .
+      - run: python -m pytest -q
+      - name: Validate installer syntax
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            pwsh -NoProfile -Command '$tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile("install.ps1", [ref]$tokens, [ref]$errors) > $null; if ($errors.Count) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }'
+          else
+            bash -n install.sh
+          fi
+      - run: pyinstaller --clean --noconfirm inference-gateway.spec
+      - name: Smoke-test packaged CLI
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            dist/inference-gateway.exe --help
+          else
+            dist/inference-gateway --help
+          fi
+      - shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp dist/inference-gateway.exe "dist/${{ matrix.artifact }}"
+          else
+            cp dist/inference-gateway "dist/${{ matrix.artifact }}"
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: release
+          pattern: inference-gateway-*
+          merge-multiple: true
+      - name: Create checksums
+        working-directory: release
+        run: sha256sum inference-gateway-* > checksums.txt
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber release/*
+          else
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes release/*
+          fi

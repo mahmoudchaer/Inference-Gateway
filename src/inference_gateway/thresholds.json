@@ -1,0 +1,10 @@
+{
+  "model": "jev-latest",
+  "calibrated": false,
+  "note": "Provisional until `python -m inference_gateway.calibrate` is run with TYPESAFE_API_KEY. A unit is removed only when Jev's probability that it is required is below the level's threshold.",
+  "levels": {
+    "low": 0.08,
+    "normal": 0.35,
+    "high": 0.62
+  }
+}
